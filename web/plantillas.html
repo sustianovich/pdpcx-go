@@ -1,0 +1,372 @@
+{{define "cabecera"}}<!doctype html>
+<html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>{{.Titulo}} · PDPCX</title><link rel="stylesheet" href="/estatico/estilo.css"></head>
+<body>
+<header>
+  <span class="marca">PDPCX · Programa de deteccion precoz cérvix</span>
+  {{if .S}}<nav>
+    <a href="/">Inicio</a>
+    {{if tiene .S "ficha"}}<a href="/buscar">Buscar mujer</a>{{end}}
+    {{if tiene .S "pendientes"}}<a href="/pendientes">Pendientes</a>{{end}}
+    {{if tiene .S "kpis"}}<a href="/kpis">KPIs</a>{{end}}
+    {{if tiene .S "lotes"}}<a href="/lotes">Invitaciones</a>{{end}}
+    {{if tiene .S "lotes"}}<a href="/planificacion">Planificación mensual</a>{{end}}
+    {{if tiene .S "importar"}}<a href="/importar">Importar</a>{{end}}
+    {{if tiene .S "zonas"}}<a href="/zonas">Zonas</a>{{end}}
+    {{if tiene .S "parametros"}}<a href="/parametros">Reglas</a>{{end}}
+    {{if tiene .S "usuarios"}}<a href="/usuarios">Usuarios</a>{{end}}
+    {{if tiene .S "auditoria"}}<a href="/auditoria">Auditoría</a>{{end}}
+  </nav>
+  <div class="quien">{{.S.Usuario.Nombre}} · {{.S.Usuario.Rol}}
+    <a href="/clave" style="color:#fff">Contraseña</a>
+    <form method="post" action="/salir"><input type="hidden" name="csrf" value="{{.S.CSRF}}"><button>Salir</button></form>
+  </div>{{end}}
+</header>
+<main>
+{{if .Msg}}<div class="msg bien">{{.Msg}}</div>{{end}}
+{{if .Err}}<div class="msg error">{{.Err}}</div>{{end}}
+{{end}}
+
+{{define "pie"}}</main></body></html>{{end}}
+
+{{define "login"}}{{template "cabecera" .}}
+<div class="login tarjeta">
+  <h1>Acceso</h1>
+  <form method="post" action="/entrar" autocomplete="off">
+    <label>Usuario <input name="login" required autofocus></label>
+    <label>Contraseña <input name="clave" type="password" required></label>
+    <button>Entrar</button>
+  </form>
+  <p class="pequeno">Acceso restringido a personal autorizado. Toda consulta queda registrada.</p>
+</div>
+{{template "pie" .}}{{end}}
+
+{{define "clave"}}{{template "cabecera" .}}
+<div class="login tarjeta">
+  <h1>Cambiar contraseña</h1>
+  {{if .D}}<p class="aviso">Debe cambiar la contraseña antes de continuar.</p>{{end}}
+  <form method="post" action="/clave">
+    <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+    <label>Contraseña actual <input name="actual" type="password" required></label>
+    <label>Nueva (mín. 12, letras y números) <input name="nueva" type="password" required minlength="12"></label>
+    <label>Repetir nueva <input name="repetir" type="password" required minlength="12"></label>
+    <button>Guardar</button>
+  </form>
+</div>
+{{template "pie" .}}{{end}}
+
+{{define "inicio"}}{{template "cabecera" .}}
+<h1>Inicio</h1>
+<div class="rejilla">
+  <div class="tarjeta"><div class="pequeno">Tareas pendientes de mi servicio</div><div class="cifra">{{.D.Total}}</div>
+    <div class="{{if .D.Vencidas}}mal{{else}}ok{{end}}">{{.D.Vencidas}} fuera de plazo</div>
+    {{if tiene .S "pendientes"}}<a href="/pendientes">Ver lista</a>{{end}}</div>
+  <div class="tarjeta"><div class="pequeno">Reglas vigentes</div><div class="cifra">v{{.D.Version}}</div>
+    <div class="pequeno">{{.D.Protocolo}}</div></div>
+</div>
+{{if .D.Resumen}}
+<div class="rejilla">
+<div class="tarjeta"><h2>Mujeres por estado</h2>
+<table>{{range .D.Resumen.PorEstado}}<tr><td><span class="etq {{index . 0}}">{{index . 0}}</span></td><td class="num">{{index . 1}}</td></tr>{{end}}</table></div>
+<div class="tarjeta"><h2>Últimos intercambios</h2>
+<table><tr><th>Fecha</th><th>Tipo</th><th>Sentido</th><th class="num">Filas</th></tr>
+{{range .D.Resumen.Cargas}}<tr><td>{{index . 0}}</td><td>{{index . 1}}</td><td>{{index . 2}}</td><td class="num">{{index . 4}}</td></tr>{{end}}</table></div>
+</div>{{end}}
+{{template "pie" .}}{{end}}
+
+{{define "buscar"}}{{template "cabecera" .}}
+<h1>Buscar mujer</h1>
+<form class="linea tarjeta" method="get" action="/buscar">
+  <label>CIP, NHC o id <input name="q" value="{{.D.Q}}" required autofocus></label><button>Buscar</button>
+</form>
+{{if .D.Q}}{{if .D.ID}}<p><a href="/mujer/{{.D.ID}}">Abrir ficha</a></p>{{else}}<p>Sin resultados.</p>{{end}}{{end}}
+{{template "pie" .}}{{end}}
+
+{{define "ficha"}}{{template "cabecera" .}}{{$f := .D.F}}{{$s := .S}}
+<h1>{{$f.CIP}} · NHC {{$f.NHC}} <span class="etq {{$f.Estado}}">{{$f.Estado}}</span></h1>
+<div class="rejilla">
+  <div class="tarjeta">
+    <div>Nacimiento: <b>{{$f.FechaNac}}</b> ({{.D.Edad}} años)</div>
+    <div>ZBS {{$f.ZBS}} · municipio {{$f.Municipio}} · CP {{$f.CP}}</div>
+    <div>En el programa desde {{$f.FechaAlta}} · estado desde {{$f.FechaEstado}}</div>
+    {{if $f.Proxima}}<div>Próxima cita prevista: <b>{{$f.Proxima}}</b> ({{$f.MotivoProx}})</div>{{end}}
+    {{if $f.FusionadaEn.Valid}}<div class="aviso">Registro fusionado en <a href="/mujer/{{$f.FusionadaEn.Int64}}">id {{$f.FusionadaEn.Int64}}</a></div>{{end}}
+  </div>
+  <div class="tarjeta">
+    <b>Exclusiones</b>{{range $f.Exclusiones}}<div>{{.Tipo}} {{.Motivo}}: {{.Inicio}} → {{if .Fin}}{{.Fin}}{{else}}sin fin{{end}}</div>{{else}}<div class="pequeno">Ninguna</div>{{end}}
+    <b>Vacunación VPH</b>{{range $f.Vacunas}}<div>{{.Fecha}} · dosis {{.Dosis.Int64}} {{.Vacuna}}</div>{{else}}<div class="pequeno">Sin datos</div>{{end}}
+  </div>
+</div>
+
+{{with .D.Abierta}}
+<h2>Episodio abierto: invitación {{.ID}} · {{.Prueba}} {{.Muestra}} · {{.Estado}}</h2>
+{{if tiene $s "prueba"}}
+<details open><summary>Registrar prueba / resultado</summary>
+<form class="linea" method="post" action="/mujer/{{$f.ID}}/prueba">
+  <input type="hidden" name="csrf" value="{{$s.CSRF}}"><input type="hidden" name="inv" value="{{.ID}}">
+  <label>Prueba <select name="tipo"><option>CITOLOGIA</option><option {{if eq .Prueba "VPH"}}selected{{end}}>VPH</option></select></label>
+  <label>Finalidad <select name="finalidad"><option>PRIMARIA</option><option>REPETICION</option><option>TRIAJE</option><option {{if eq .Tipo "CONTROL"}}selected{{end}}>CONTROL</option></select></label>
+  <label>Muestra <select name="muestra"><option>PROF</option><option {{if eq .Muestra "AUTO"}}selected{{end}}>AUTO</option></select></label>
+  <label>Toma <input type="date" name="toma" required></label>
+  <label>Resultado (fecha) <input type="date" name="fres"></label>
+  <label>Resultado <select name="resultado">
+    <optgroup label="Citología">{{range $.D.CatCito}}<option>{{.}}</option>{{end}}</optgroup>
+    <optgroup label="VPH-AR">{{range $.D.CatVPH}}<option>{{.}}</option>{{end}}</optgroup></select></label>
+  <button>Registrar</button>
+</form></details>{{end}}
+{{if and (tiene $s "colposcopia") $.D.ColPend}}
+<details open><summary>Registrar colposcopia (derivada {{$.D.ColPend.Derivacion}} · {{$.D.ColPend.Motivo}})</summary>
+<form class="linea" method="post" action="/mujer/{{$f.ID}}/colposcopia">
+  <input type="hidden" name="csrf" value="{{$s.CSRF}}"><input type="hidden" name="inv" value="{{.ID}}">
+  <label>Estado <select name="estado"><option>REALIZADA</option><option>NO_ACUDE</option></select></label>
+  <label>Fecha <input type="date" name="fecha" required value="{{$.D.ColPend.Realizacion}}"></label>
+  <label>Adecuada <select name="adecuada"><option value="S">Sí</option><option value="N">No</option></select></label>
+  <label>Biopsia <select name="biopsia"><option value="S">Sí</option><option value="N">No</option></select></label>
+  <label>Histología <select name="histologia"><option value="">(pendiente)</option>{{range $.D.CatHisto}}<option>{{.}}</option>{{end}}</select></label>
+  <label>Fecha histología <input type="date" name="fhist"></label>
+  <button>Registrar</button>
+</form></details>{{end}}
+{{if and (tiene $s "novalida") (eq .Estado "ENVIADA")}}
+<details><summary>Marcar invitación como no válida</summary>
+<form class="linea" method="post" action="/mujer/{{$f.ID}}/novalida">
+  <input type="hidden" name="csrf" value="{{$s.CSRF}}"><input type="hidden" name="inv" value="{{.ID}}">
+  <label>Causa <select name="causa"><option>CARTA_DEVUELTA</option><option>DIRECCION_INCORRECTA</option><option>TELEFONO_ERRONEO</option><option>DESCONOCIDA</option></select></label>
+  <label>Fecha <input type="date" name="fecha" required value="{{$.D.Hoy}}"></label><button>Guardar</button>
+</form></details>{{end}}
+{{end}}
+
+{{if tiene $s "exclusion"}}
+<details><summary>Registrar exclusión</summary>
+<form class="linea" method="post" action="/mujer/{{$f.ID}}/exclusion">
+  <input type="hidden" name="csrf" value="{{$s.CSRF}}">
+  <label>Tipo <select name="tipo"><option>TEMPORAL</option><option>DEFINITIVA</option></select></label>
+  <label>Motivo <select name="motivo">{{range $.D.MotivosExcl}}<option>{{.}}</option>{{end}}</select></label>
+  <label>Inicio <input type="date" name="inicio" required value="{{$.D.Hoy}}"></label>
+  <label>Fin (temporal) <input type="date" name="fin"></label><button>Guardar</button>
+</form></details>{{end}}
+{{if and (tiene $s "reincorporar") (or (eq $f.Estado "SEGUIMIENTO_CLINICO") (eq $f.Estado "EXCLUIDA"))}}
+<details><summary>Reincorporar al cribado</summary>
+<form class="linea" method="post" action="/mujer/{{$f.ID}}/reincorporar">
+  <input type="hidden" name="csrf" value="{{$s.CSRF}}">
+  <label>Fecha de próxima cita <input type="date" name="fecha" required value="{{$.D.Hoy}}"></label>
+  <label>Motivo <input name="motivo" required></label><button>Reincorporar</button>
+</form></details>{{end}}
+{{if and (tiene $s "fusionar") (ne $f.Estado "FUSIONADA")}}
+<details><summary>Fusionar con un registro duplicado</summary>
+<p class="pequeno">Todo lo del CIP duplicado pasará a esta mujer. No se borra nada y queda registrado.</p>
+<form class="linea" method="post" action="/mujer/{{$f.ID}}/fusionar">
+  <input type="hidden" name="csrf" value="{{$s.CSRF}}">
+  <label>CIP duplicado <input name="duplicado" required></label>
+  <label>Motivo <input name="motivo" required></label><button class="sec">Fusionar</button>
+</form></details>{{end}}
+
+<h2>Invitaciones</h2>
+{{range $f.Invitaciones}}
+<div class="inv tarjeta {{if ne .Estado "CERRADA"}}abierta{{end}}">
+  <b>{{.ID}}</b> · {{.Tipo}} ronda {{.Ronda}} · {{.Fecha}} · {{.Edad}} años · {{.Prueba}} {{.Muestra}} · {{.Motivo}}
+  {{if eq .Valida 0}}<span class="mal">NO válida: {{.Causa}}</span>{{end}}
+  · <b>{{.Estado}}</b>{{if eq .Estado "CERRADA"}} {{.FCierre}} ({{.Cierre}}){{end}} · reglas v{{.Version.Int64}}
+  {{if .Pruebas}}<table><tr><th>Prueba</th><th>Finalidad</th><th>Muestra</th><th>Toma</th><th>Resultado</th><th></th></tr>
+  {{range .Pruebas}}<tr><td>{{.Tipo}}</td><td>{{.Finalidad}}</td><td>{{.Muestra}}</td><td>{{.Toma}}</td><td>{{.Resultado}}</td><td><b>{{.Valor}}</b></td></tr>{{end}}</table>{{end}}
+  {{range .Colpos}}<div>Colposcopia: derivada {{.Derivacion}} ({{.Motivo}}) → {{.Estado}} {{.Realizacion}} {{if eq .Adecuada 1}}adecuada{{end}} {{if .Histologia}}· histología <b>{{.Histologia}}</b>{{end}}</div>{{end}}
+  {{range .Decisiones}}<div class="pequeno">Decisión {{.Fecha}}: {{.Accion}} ({{.Motivo}}) · reglas v{{.Version}} · {{.Usuario}}</div>{{end}}
+</div>
+{{else}}<p>Sin invitaciones.</p>{{end}}
+
+{{if $f.Historial}}<h2>Historial de datos personales</h2>
+<table><tr><th>Fecha</th><th>Campo</th><th>Antes</th><th>Ahora</th><th>Origen</th><th>Usuario</th></tr>
+{{range $f.Historial}}<tr><td>{{.Fecha}}</td><td>{{.Campo}}</td><td>{{.Anterior}}</td><td>{{.Nuevo}}</td><td>{{.Origen}}</td><td>{{.Usuario}}</td></tr>{{end}}</table>{{end}}
+
+<h2>Traza completa</h2>
+<div class="tabla-scroll"><table><tr><th>Fecha</th><th>Inv.</th><th>Evento</th><th>Detalle</th><th>Origen</th><th>Usuario</th><th>Registrado</th></tr>
+{{range $f.Eventos}}<tr><td>{{.Fecha}}</td><td>{{if .Inv}}{{.Inv}}{{end}}</td><td>{{.Tipo}}</td><td>{{.Detalle}}</td><td>{{.Origen}}</td><td>{{.Usuario}}</td><td class="pequeno">{{.Registrado}}</td></tr>{{end}}
+</table></div>
+{{template "pie" .}}{{end}}
+
+{{define "pendientes"}}{{template "cabecera" .}}
+<h1>Pendientes {{if .D.Servicio}}· {{.D.Servicio}}{{else}}· todos los servicios{{end}}</h1>
+{{if .D.PuedeElegir}}<form class="linea tarjeta" method="get" action="/pendientes">
+  <label>Servicio <select name="servicio"><option value="">Todos</option>{{range .D.Servicios}}<option {{if eq . $.D.Servicio}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <button>Ver</button></form>{{end}}
+<p>{{len .D.Tareas}} tareas · <span class="{{if .D.Vencidas}}mal{{else}}ok{{end}}">{{.D.Vencidas}} fuera de plazo</span></p>
+<div class="tabla-scroll"><table><tr><th>Servicio</th><th>Tarea</th><th>Mujer</th><th>Desde</th><th class="num">Días</th><th class="num">Plazo</th><th>Detalle</th></tr>
+{{range .D.Tareas}}<tr><td>{{.Servicio}}</td><td>{{.Tarea}}</td><td><a href="/mujer/{{.MujerID}}">{{.CIP}}</a></td><td>{{fecha .Desde}}</td>
+<td class="num {{if .Vencida}}mal{{end}}">{{.Dias}}</td><td class="num">{{.Plazo}}</td><td>{{.Detalle}}</td></tr>{{end}}
+</table></div>
+{{template "pie" .}}{{end}}
+
+{{define "kpis"}}{{template "cabecera" .}}
+<h1>KPIs {{.D.Anio}} · plantilla de la Red</h1>
+<form class="linea tarjeta" method="get" action="/kpis">
+  <label>Año <input type="number" name="anio" value="{{.D.Anio}}" min="2000" max="2100"></label><button>Calcular</button>
+  <a href="/kpis.csv?anio={{.D.Anio}}">Descargar CSV</a></form>
+{{with .D.Inf}}
+<div class="rejilla">
+<div><h2>Participación (invitadas en {{.Anio}})</h2><table><tr><th>Celda</th><th>Variable</th><th class="num">Valor</th></tr>
+{{range .Celdas}}{{if eq .Hoja "Participación"}}<tr><td>{{.Celda}}</td><td>{{.Desc}}</td><td class="num">{{if .Valor}}{{deref .Valor}}{{else}}<span class="aviso">pendiente INE</span>{{end}}</td></tr>{{end}}{{end}}</table></div>
+<div><h2>Resultados (muestra primaria en {{.Anio}})</h2><table><tr><th>Celda</th><th>Variable</th><th class="num">Valor</th></tr>
+{{range .Celdas}}{{if eq .Hoja "Resultados"}}<tr><td>{{.Celda}}</td><td>{{.Desc}}</td><td class="num">{{deref .Valor}}</td></tr>{{end}}{{end}}</table></div>
+</div>
+<h2>Indicadores</h2><table><tr><th>Indicador</th><th class="num">Valor</th><th>Cálculo</th></tr>
+{{range .Indicadores}}<tr><td>{{index . 0}}</td><td class="num">{{index . 1}}</td><td class="pequeno">{{index . 2}}</td></tr>{{end}}</table>
+<h2>Comprobaciones</h2><table>{{range .Controles}}<tr><td>{{index . 0}}</td><td>{{index . 1}}</td></tr>{{end}}</table>
+{{end}}
+{{template "pie" .}}{{end}}
+
+{{define "lotes"}}{{template "cabecera" .}}
+<h1>Invitaciones</h1>
+<p><a href="/planificacion">Abrir planificación mensual</a> para ver el año y generar cada mes en orden.</p>
+<div class="tarjeta"><h2>Planificar un periodo</h2>
+<form class="linea" method="post" action="/lotes/planificar">
+  <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+  <label>Desde <input type="date" name="desde" required></label>
+  <label>Hasta <input type="date" name="hasta" required></label>
+  <label>Lote <input name="lote" placeholder="p. ej. ENE27" required pattern="[A-Za-z0-9_-]{1,40}"></label>
+  <button>Planificar</button></form>
+<p class="pequeno">Antes de planificar se cierran las invitaciones sin respuesta pasado el plazo. Nunca se invita a quien ya ha cumplido 66.</p></div>
+<p class="pequeno">Los nombres de lote AAAA-MM están reservados para la planificación mensual. Use otro nombre para los periodos libres.</p>
+<h2>Lotes generados</h2>
+<table><tr><th>Lote</th><th>Fecha</th><th>Usuario</th><th class="num">Candidatas</th><th>Detalle</th><th></th></tr>
+{{range .D}}<tr><td>{{.Lote}}</td><td>{{.Fecha}}</td><td>{{.Usuario}}</td><td class="num">{{.Filas}}</td><td class="pequeno">{{.Detalle}}</td>
+<td><a href="/lotes/exportar?lote={{.Lote}}">Descargar CSV</a></td></tr>{{end}}</table>
+{{template "pie" .}}{{end}}
+
+{{define "planificacion"}}{{template "cabecera" .}}{{$cal := .D}}{{$s := .S}}
+<h1>Planificación mensual</h1>
+<form class="linea tarjeta" method="get" action="/planificacion">
+  <label>Año <input type="number" name="anio" min="1900" max="9998" value="{{$cal.Anio}}" required></label>
+  <button>Ver año</button>
+  {{if ge $cal.Anterior 1900}}<a href="/planificacion?anio={{$cal.Anterior}}">← {{$cal.Anterior}}</a>{{end}}
+  {{if le $cal.Siguiente 9998}}<a href="/planificacion?anio={{$cal.Siguiente}}">{{$cal.Siguiente}} →</a>{{end}}
+</form>
+<div class="rejilla">
+  <div class="tarjeta"><div class="pequeno">Citas vencidas sin invitación abierta</div><div class="cifra">{{$cal.Atrasadas}}</div>
+    <p class="pequeno">El lote incluye las citas anteriores al inicio del mes, siempre que sigan siendo elegibles y no estén excluidas.</p></div>
+  <div class="tarjeta"><div class="pequeno">Próximo mes a generar</div><div class="cifra">{{$cal.Proximo}}</div>
+    <p class="pequeno">Sin tope mensual. Se permiten meses futuros, en orden y una sola vez. Al comenzar, genere enero del año elegido.</p></div>
+</div>
+<p class="pequeno">Intervalos tras resultado negativo: citología {{$cal.IntervaloCito}} meses · VPH {{$cal.IntervaloVPH}} meses. La prueba se elige por la edad en la fecha de invitación.</p>
+<div class="tabla-scroll"><table class="calendario">
+<caption>Calendario de invitaciones de {{$cal.Anio}}</caption>
+<thead><tr><th scope="col">Mes</th><th scope="col" class="num">Citología<br>({{$cal.CitoMin}}–{{$cal.CitoMax}})</th><th scope="col" class="num">VPH<br>({{$cal.VPHMin}}–{{$cal.VPHMax}})</th><th scope="col" class="num">Controles<br>{{$cal.ControlMeses}} m</th><th scope="col" class="num">Reinvitaciones</th><th scope="col" class="num">Salen por edad</th><th scope="col">Estado</th><th scope="col">Acción</th></tr></thead>
+<tbody>{{range $cal.Meses}}<tr class="{{if .Generado}}mes-generado{{else if .PuedeGenerar}}mes-pendiente{{end}}">
+<th scope="row">{{.Nombre}} {{$cal.Anio}}</th><td class="num">{{.Citologia}}</td><td class="num">{{.VPH}}</td><td class="num">{{.Controles}}</td><td class="num">{{.Reinvitaciones}}</td><td class="num">{{.Salidas}}</td>
+<td><span class="etq">{{.Estado}}</span>{{if .Generado}}<div class="pequeno">Lote {{.Lote}} · {{.Total}} invitaciones<br>{{.Usuario}} · {{.Fecha}}</div>{{else}}<div class="pequeno">{{.Total}} invitaciones previstas</div>{{end}}</td>
+<td>{{if .Generado}}<a href="/lotes/exportar?lote={{.Lote}}">Descargar CSV</a>{{else if .PuedeGenerar}}<form method="post" action="/planificacion/generar">
+<input type="hidden" name="csrf" value="{{$s.CSRF}}"><input type="hidden" name="anio" value="{{$cal.Anio}}"><input type="hidden" name="mes" value="{{.Numero}}"><button>Generar lote</button></form>{{else}}<span class="pequeno">—</span>{{end}}</td>
+</tr>{{end}}</tbody></table></div>
+<p class="pequeno">Las columnas de citología y VPH corresponden a cribado ordinario. Los controles y las reinvitaciones se cuentan aparte, una vez por invitación.</p>
+<div class="tarjeta"><h2>Cómo leer la previsión</h2>
+<p>Los meses generados muestran las cifras reales del lote. Los pendientes se calculan con la agenda y las reglas actuales, incluyendo exclusiones temporales y cierres automáticos por falta de respuesta al inicio de cada mes.</p>
+<p class="pequeno">La previsión supone que no llegan nuevos resultados ni cambian los datos. Los controles, las repeticiones y otras citas que todavía no se hayan fijado pueden aumentar las cifras de los meses siguientes. La previsión se actualiza al volver a abrir la página.</p>
+</div>
+{{template "pie" .}}{{end}}
+
+{{define "importar"}}{{template "cabecera" .}}
+<h1>Importar ficheros</h1>
+<form class="linea tarjeta" method="post" action="/importar" enctype="multipart/form-data">
+  <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+  <label>Tipo <select name="tipo">{{range .D.Tipos}}<option>{{.}}</option>{{end}}</select></label>
+  <label>Fichero CSV (separador ;) <input type="file" name="fichero" accept=".csv,text/csv" required></label>
+  <label>Fecha de carga (padrón) <input type="date" name="fecha" value="{{.D.Hoy}}"></label>
+  <button>Importar</button></form>
+{{with .D.Res}}<div class="tarjeta">Leídas {{.Leidas}} · aplicadas <span class="ok">{{.Aplicadas}}</span> · rechazadas <span class="{{if .Rechazadas}}mal{{else}}ok{{end}}">{{.Rechazadas}}</span></div>{{end}}
+{{if .D.Rechazos}}<h2>Filas rechazadas</h2><table><tr><th>Fila</th><th>Motivo</th></tr>{{range .D.Rechazos}}<tr><td>{{index . 0}}</td><td>{{index . 1}}</td></tr>{{end}}</table>{{end}}
+<p class="pequeno">Formatos: ver la carpeta <code>plantillas/</code>. Cada importación queda registrada como intercambio de ENTRADA y en auditoría.</p>
+{{template "pie" .}}{{end}}
+
+{{define "zonas"}}{{template "cabecera" .}}
+<h1>Zonas básicas de salud</h1>
+<p class="pequeno">Catálogo de las zonas de esta comunidad. El código debe ser el mismo que llega en la columna <code>zbs</code> del padrón. No hay un número fijo de zonas: añada las que tenga.</p>
+<div class="rejilla">
+<div class="tarjeta"><h2>{{if .D.Editando}}Modificar la zona {{.D.F.Codigo}}{{else}}Añadir una zona{{end}}</h2>
+<form class="linea" method="post" action="/zonas">
+  <input type="hidden" name="csrf" value="{{.S.CSRF}}">{{if .D.Editando}}<input type="hidden" name="editando" value="1">{{end}}
+  <label>Código <input name="codigo" value="{{.D.F.Codigo}}" required maxlength="40" size="10" {{if .D.Editando}}readonly{{end}}></label>
+  <label>Nombre <input name="nombre" value="{{.D.F.Nombre}}" required></label>
+  <label>Área o sector <input name="area" value="{{.D.F.Area}}" size="12"></label>
+  <label>Centro de salud de referencia <input name="centro" value="{{.D.F.Centro}}"></label>
+  <label>Municipio cabecera <input name="municipio" value="{{.D.F.Municipio}}" size="12"></label>
+  <label>Cupo mensual de invitaciones <input type="number" name="cupo_mensual" min="0" value="{{if .D.F.Cupo.Valid}}{{.D.F.Cupo.Int64}}{{end}}" placeholder="sin tope"></label>
+  <label>Activa <select name="activa"><option value="S">Sí</option><option value="N" {{if not .D.F.Activa}}selected{{end}}>No</option></select></label>
+  <label>Notas <input name="notas" value="{{.D.F.Notas}}" size="30"></label>
+  <button>Guardar</button>{{if .D.Editando}} <a href="/zonas">Cancelar</a>{{end}}
+</form>
+<p class="pequeno">Cupo vacío = sin tope. Guardar un código que ya existe actualiza sus datos.</p></div>
+<div class="tarjeta"><h2>Cargar desde un CSV</h2>
+<form class="linea" method="post" action="/zonas/importar" enctype="multipart/form-data">
+  <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+  <label>Fichero CSV (separador ;) <input type="file" name="fichero" accept=".csv,text/csv" required></label>
+  <button>Importar</button></form>
+<p class="pequeno">Columnas: <code>codigo;nombre;area;centro;municipio;cupo_mensual;activa;notas</code>. Solo <code>codigo</code> es obligatoria. Las zonas que ya existen se actualizan; las que no vienen en el fichero no se tocan. Ejemplo en <code>plantillas/zbs.csv</code>.</p>
+<p><a href="/zonas.csv">Descargar el catálogo actual (CSV)</a></p>
+{{with .D.Res}}<div>Leídas {{.Leidas}} · aplicadas <span class="ok">{{.Aplicadas}}</span> · rechazadas <span class="{{if .Rechazadas}}mal{{else}}ok{{end}}">{{.Rechazadas}}</span></div>{{end}}
+{{if .D.Rechazos}}<table><tr><th>Fila</th><th>Motivo</th></tr>{{range .D.Rechazos}}<tr><td>{{index . 0}}</td><td>{{index . 1}}</td></tr>{{end}}</table>{{end}}
+</div>
+</div>
+
+{{if .D.SinCatalogar}}<div class="tarjeta"><h2>Zonas del padrón que faltan en el catálogo</h2>
+<p><span class="aviso">{{len .D.SinCatalogar}} zonas</span> aparecen en el padrón y no están catalogadas (código · mujeres):
+{{range .D.SinCatalogar}}<span class="etq">{{.Codigo}} · {{.Mujeres}}</span> {{end}}</p>
+<form class="linea" method="post" action="/zonas/padron"><input type="hidden" name="csrf" value="{{.S.CSRF}}">
+<button class="sec">Añadirlas al catálogo</button></form>
+<p class="pequeno">Se añaden con el código como nombre y sin cupo; después puede completarlas.</p></div>{{end}}
+{{if .D.SinZona}}<p><span class="aviso">{{.D.SinZona}} mujeres</span> no tienen zona en el padrón.</p>{{end}}
+
+<h2>Catálogo · {{len .D.Zonas}} zonas</h2>
+<div class="tabla-scroll"><table><tr><th>Código</th><th>Nombre</th><th>Área</th><th>Centro</th><th>Municipio</th><th class="num">Cupo mensual</th>
+<th class="num">Mujeres</th><th class="num">Activas</th><th>Estado</th><th>Notas</th><th>Actualizada</th><th></th></tr>
+{{range .D.Zonas}}<tr><td><b>{{.Codigo}}</b></td><td>{{.Nombre}}</td><td>{{.Area}}</td><td>{{.Centro}}</td><td>{{.Municipio}}</td>
+<td class="num">{{if .Cupo.Valid}}{{.Cupo.Int64}}{{else}}<span class="pequeno">sin tope</span>{{end}}</td>
+<td class="num">{{.Mujeres}}</td><td class="num">{{.Activas}}</td>
+<td>{{if .Activa}}<span class="ok">activa</span>{{else}}<span class="mal">inactiva</span>{{if .Activas}} <span class="aviso">con mujeres</span>{{end}}{{end}}</td>
+<td class="pequeno">{{.Notas}}</td><td class="pequeno">{{.Actualizada}} {{.Usuario}}</td>
+<td><a href="/zonas?editar={{.Codigo}}">Editar</a></td></tr>
+{{else}}<tr><td colspan="12">Todavía no hay zonas. Añádalas a mano, con un CSV o desde el padrón.</td></tr>{{end}}
+</table></div>
+{{template "pie" .}}{{end}}
+
+{{define "parametros"}}{{template "cabecera" .}}
+<h1>Reglas y parámetros · versión vigente v{{.D.Version}}</h1>
+<p class="pequeno">{{.D.Protocolo}}. Cada cambio crea una versión nueva; cada invitación y cada decisión guardan la versión con la que se tomaron.</p>
+<table><tr><th>Parámetro</th><th>Valor</th><th>Descripción</th><th>Cambiar</th></tr>
+{{range .D.Pars}}<tr><td><code>{{.Clave}}</code></td><td><b>{{.Valor}}</b></td><td class="pequeno">{{.Desc}}</td>
+<td><form class="linea" method="post" action="/parametros"><input type="hidden" name="csrf" value="{{$.S.CSRF}}"><input type="hidden" name="clave" value="{{.Clave}}">
+<input name="valor" value="{{.Valor}}" size="10"><input name="motivo" placeholder="motivo" required size="14"><button class="sec">Guardar</button></form></td></tr>{{end}}</table>
+<h2>Versiones</h2><table><tr><th>v</th><th>Fecha</th><th>Usuario</th><th>Cambio</th></tr>
+{{range .D.Versiones}}<tr><td>{{index . 0}}</td><td>{{index . 1}}</td><td>{{index . 2}}</td><td>{{index . 3}}</td></tr>{{end}}</table>
+{{template "pie" .}}{{end}}
+
+{{define "usuarios"}}{{template "cabecera" .}}
+<h1>Usuarios</h1>
+<div class="tarjeta"><h2>Nuevo usuario</h2>
+<form class="linea" method="post" action="/usuarios" autocomplete="off">
+  <input type="hidden" name="csrf" value="{{.S.CSRF}}">
+  <label>Login <input name="login" required pattern="[a-zA-Z0-9._-]{3,40}"></label>
+  <label>Nombre <input name="nombre" required></label>
+  <label>Rol <select name="rol">{{range .D.Roles}}<option>{{.}}</option>{{end}}</select></label>
+  <label>Contraseña inicial <input name="clave" type="password" required minlength="12"></label>
+  <button>Crear</button></form>
+<p class="pequeno">El usuario deberá cambiar la contraseña en su primer acceso.</p></div>
+<table><tr><th>Login</th><th>Nombre</th><th>Rol</th><th>Activo</th><th>Último acceso</th><th>Bloqueado hasta</th><th></th></tr>
+{{range .D.Usuarios}}<tr><td>{{.Login}}</td><td>{{.Nombre}}</td><td>{{.Rol}}</td><td>{{if .Activo}}<span class="ok">sí</span>{{else}}<span class="mal">no</span>{{end}}</td>
+<td>{{.Ultimo}}</td><td>{{.Bloqueado}}</td>
+<td><form class="linea" method="post" action="/usuarios/{{.ID}}/activo"><input type="hidden" name="csrf" value="{{$.S.CSRF}}"><button class="sec">{{if .Activo}}Desactivar{{else}}Activar{{end}}</button></form>
+<form class="linea" method="post" action="/usuarios/{{.ID}}/clave"><input type="hidden" name="csrf" value="{{$.S.CSRF}}"><input name="clave" type="password" placeholder="nueva clave" minlength="12" required><button class="sec">Restablecer</button></form></td></tr>{{end}}</table>
+{{template "pie" .}}{{end}}
+
+{{define "auditoria"}}{{template "cabecera" .}}
+<h1>Auditoría</h1>
+<form class="linea tarjeta" method="get" action="/auditoria">
+  <label>Usuario <input name="usuario" value="{{.D.Usuario}}"></label>
+  <label>Acción <input name="accion" value="{{.D.Accion}}" placeholder="p. ej. ACCESO_FICHA"></label>
+  <label>Objeto (CIP, lote…) <input name="objeto" value="{{.D.Objeto}}"></label>
+  <label>Desde <input type="date" name="desde" value="{{.D.Desde}}"></label>
+  <button>Filtrar</button></form>
+<p class="pequeno">Últimos 500 registros que cumplen el filtro.</p>
+<div class="tabla-scroll"><table><tr><th>Momento</th><th>Usuario</th><th>Rol</th><th>Canal</th><th>Acción</th><th>Objeto</th><th>Detalle</th><th>IP</th></tr>
+{{range .D.Filas}}<tr><td class="pequeno">{{index . 0}}</td><td>{{index . 1}}</td><td>{{index . 2}}</td><td>{{index . 3}}</td><td>{{index . 4}}</td><td>{{index . 5}}</td><td class="pequeno">{{index . 6}}</td><td class="pequeno">{{index . 7}}</td></tr>{{end}}
+</table></div>
+{{template "pie" .}}{{end}}
+
+{{define "error"}}{{template "cabecera" .}}<h1>{{.Titulo}}</h1>{{template "pie" .}}{{end}}

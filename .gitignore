@@ -1,0 +1,62 @@
+# Metadatos locales y documentación interna
+.atl
+.codegraph
+/odd/
+/trial-*/
+/ejemplos/
+/IMPROVEMENTS.md
+
+# Datos de ejecución y artefactos operativos (también en subdirectorios)
+logs/
+reports/
+screenshots/
+exports/
+data/
+backups/
+/error-servidor.txt
+*.db
+*.db-*
+*.sqlite
+*.sqlite-*
+*.sqlite3
+*.sqlite3-*
+*.sql
+*.dump
+*.bak
+*.log
+
+# CSV: solo se publican los dos esquemas independientes de capacidad
+*.csv
+!/plantillas/capacidad_centros.csv
+!/plantillas/capacidad_zbs.csv
+
+# Configuración privada, claves y certificados
+.env
+.env.*
+keys/
+certs/
+*.key
+*.pem
+*.crt
+*.cer
+*.cert
+*.ppk
+*.p7b
+*.p7c
+*.p12
+*.pfx
+*.der
+*.jks
+*.keystore
+id_rsa
+id_rsa.*
+id_ed25519
+id_ed25519.*
+
+# Binarios y salidas de compilación; conservar vendor/ (WASM y licencias)
+/pdpcx
+*.exe
+*.test
+*.out
+/bin/
+/dist/
