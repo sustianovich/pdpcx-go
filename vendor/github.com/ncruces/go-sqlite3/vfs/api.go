@@ -2,15 +2,15 @@
 package vfs
 
 import (
-	"context"
 	"io"
 
-	"github.com/tetratelabs/wazero/api"
+	"github.com/ncruces/go-sqlite3/internal/sqlite3_wrap"
 )
 
 // A VFS defines the interface between the SQLite core and the underlying operating system.
 //
-// Use sqlite3.ErrorCode or sqlite3.ExtendedErrorCode to return specific error codes to SQLite.
+// Use [SystemError], sqlite3.ErrorCode, or sqlite3.ExtendedErrorCode
+// to return specific error codes to SQLite.
 //
 // https://sqlite.org/c3ref/vfs.html
 type VFS interface {
@@ -31,14 +31,15 @@ type VFSFilename interface {
 
 // A File represents an open file in the OS interface layer.
 //
-// Use sqlite3.ErrorCode or sqlite3.ExtendedErrorCode to return specific error codes to SQLite.
-// In particular, sqlite3.BUSY is necessary to correctly implement lock methods.
+// Use [SystemError], sqlite3.ErrorCode, or sqlite3.ExtendedErrorCode
+// to return specific error codes to SQLite.
+// In particular, sqlite3.BUSY is needed to correctly implement lock methods.
 //
 // https://sqlite.org/c3ref/io_methods.html
 type File interface {
-	Close() error
-	ReadAt(p []byte, off int64) (n int, err error)
-	WriteAt(p []byte, off int64) (n int, err error)
+	io.Closer
+	io.ReaderAt
+	io.WriterAt
 	Truncate(size int64) error
 	Sync(flags SyncFlag) error
 	Size() (int64, error)
@@ -65,14 +66,14 @@ type FileLockState interface {
 	LockState() LockLevel
 }
 
-// FilePersistentWAL extends File to implement the
+// FilePersistWAL extends File to implement the
 // SQLITE_FCNTL_PERSIST_WAL file control opcode.
 //
 // https://sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlpersistwal
-type FilePersistentWAL interface {
+type FilePersistWAL interface {
 	File
-	PersistentWAL() bool
-	SetPersistentWAL(bool)
+	PersistWAL() bool
+	SetPersistWAL(bool)
 }
 
 // FilePowersafeOverwrite extends File to implement the
@@ -121,6 +122,15 @@ type FileOverwrite interface {
 	Overwrite() error
 }
 
+// FileSync extends File to implement the
+// SQLITE_FCNTL_SYNC file control opcode.
+//
+// https://sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlsync
+type FileSync interface {
+	File
+	SyncSuper(super string) error
+}
+
 // FileCommitPhaseTwo extends File to implement the
 // SQLITE_FCNTL_COMMIT_PHASETWO file control opcode.
 //
@@ -162,6 +172,15 @@ type FilePragma interface {
 	Pragma(name, value string) (string, error)
 }
 
+// FileBusyHandler extends File to implement the
+// SQLITE_FCNTL_BUSYHANDLER file control opcode.
+//
+// https://sqlite.org/c3ref/c_fcntl_begin_atomic_write.html#sqlitefcntlbusyhandler
+type FileBusyHandler interface {
+	File
+	BusyHandler(func() bool)
+}
+
 // FileSharedMemory extends File to possibly implement
 // shared-memory for the WAL-index.
 // The same shared-memory instance must be returned
@@ -175,8 +194,8 @@ type FileSharedMemory interface {
 // SharedMemory is a shared-memory WAL-index implementation.
 // Use [NewSharedMemory] to create a shared-memory.
 type SharedMemory interface {
-	shmMap(context.Context, api.Module, int32, int32, bool) (uint32, _ErrorCode)
-	shmLock(int32, int32, _ShmFlag) _ErrorCode
+	shmMap(*sqlite3_wrap.Wrapper, int32, int32, bool) (ptr_t, error)
+	shmLock(int32, int32, _ShmFlag) error
 	shmUnmap(bool)
 	shmBarrier()
 	io.Closer
@@ -187,7 +206,34 @@ type blockingSharedMemory interface {
 	shmEnableBlocking(block bool)
 }
 
+// FileMemoryMapper extends File to possibly implement
+// memory mapped files.
+// The same memory mapper instance must be returned
+// for the entire life of the file.
+// It's OK for MemoryMapper to return nil.
+type FileMemoryMapper interface {
+	File
+	MemoryMapper() MemoryMapper
+}
+
+// MemoryMapper is a file mapper implementation.
+// Use [NewMemoryMapper] to create a mapper.
+type MemoryMapper interface {
+	mmapSize(*sqlite3_wrap.Wrapper, ptr_t)
+	fetch(*sqlite3_wrap.Wrapper, int64, int32, ptr_t) error
+	io.Closer
+}
+
+// FileControl makes it easy to forward all fileControl methods,
+// which we want to do for the checksum VFS.
+// However, this is not a safe default, and other VFSes
+// should explicitly wrap the methods they want to wrap.
 type fileControl interface {
 	File
-	fileControl(ctx context.Context, mod api.Module, op _FcntlOpcode, pArg uint32) _ErrorCode
+	fileControl(*sqlite3_wrap.Wrapper, _FcntlOpcode, ptr_t) _ErrorCode
+}
+
+type filePDB interface {
+	File
+	SetDB(any)
 }

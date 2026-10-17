@@ -9,7 +9,8 @@ versionadas, auditoría, traza completa y los KPIs de la plantilla de la Red.
 - **Autotoma** preparada: se activa con un parámetro y una fecha.
 - **Servicio web con usuarios y roles** (Admisión, AP, Laboratorio, Ginecología, Coordinación…).
 - **Base de datos PostgreSQL** (recomendada en producción) o **SQLite** (un fichero, para pruebas o pilotos).
-- Pensado para unas **100.000 mujeres**; probado con 10.000 y 100.000 en ambos motores.
+- Pensado para unas **100.000 mujeres**; las pruebas sintéticas con 10.000 y
+  100.000 no garantizan esa capacidad en producción.
 
 Un único ejecutable, sin dependencias externas: no hace falta instalar gcc, ni
 librerías, ni un servidor web aparte. Las dependencias de Go van en `vendor/`.
@@ -35,6 +36,20 @@ export PDPCX_BD="postgres://pdpcx:CLAVE@servidor-bd:5432/pdpcx?sslmode=require"
 export PDPCX_BD=cervix.db
 ```
 
+SQLite usa `go-sqlite3 v0.35.6`, que traduce WASM a Go mediante wasm2go,
+también en Windows. Ya no usa wazero, selector de intérprete, `RuntimeConfig`
+ni importación `/embed`. La memoria queda bajo la gestión del nuevo driver:
+no se mantienen los límites de páginas del intérprete anterior (256 MiB en
+64 bits; 32 MiB en 32 bits). Se conservan el pool de una conexión y el journal
+DELETE; PostgreSQL no cambia.
+
+La actualización mejora el rendimiento en el diagnóstico sintético de 10.000 y
+100.000 mujeres, sin cambiar consultas, esquema ni reglas clínicas. No demuestra
+capacidad para 100.000 en producción ni una corrección del fallo exacto de Inicio,
+cuya causa no se ha identificado. Faltan medidas de memoria/RSS, ejecución
+prolongada, historias reales y más usuarios concurrentes. Pendientes puede
+producir unos 4 MB de HTML con 100.000; la paginación sigue pendiente.
+
 Para PostgreSQL basta con una base vacía y un usuario propietario:
 
 ```sql
@@ -56,9 +71,11 @@ go build -mod=vendor -o pdpcx .                                   # Linux
 GOOS=windows GOARCH=amd64 go build -mod=vendor -o pdpcx.exe .     # Windows
 ```
 
-Go 1.24 o superior. Los ejecutables no se incluyen en el repositorio público:
-compile desde el código fuente con las órdenes anteriores. Se conserva `vendor/`,
-incluidos los módulos WASM necesarios y sus licencias, para compilar sin red.
+Go 1.26.0 o superior, instalado previamente. Los ejecutables no se incluyen en
+el repositorio público: compile desde el código fuente con las órdenes anteriores.
+Se conserva `vendor/`, incluido el backend wasm2go y sus licencias, para compilar
+sin caché de módulos ni red. Para impedir descargas de módulos o del toolchain,
+use `GOPROXY=off GOTOOLCHAIN=local` junto con `-mod=vendor`.
 
 ## 3. Servicio web
 
@@ -338,7 +355,9 @@ carga real. Las probabilidades son ilustrativas. Solo funciona sobre una base
 vacía. En la simulación la lista viva sale muy cargada porque nadie corrige las
 direcciones ni cierra las tareas.
 
-### Rendimiento medido (Linux, un núcleo)
+### Rendimiento histórico (Linux, un núcleo; anterior a la actualización del driver)
+
+Estas cifras no caracterizan el runtime actual ni garantizan capacidad de producción.
 
 | | SQLite | PostgreSQL 16 |
 |---|---:|---:|

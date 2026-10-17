@@ -1,16 +1,10 @@
 package sqlite3
 
 import (
-	"context"
-	"errors"
 	"math/rand"
 	"runtime"
 	"strconv"
 	"strings"
-
-	"github.com/tetratelabs/wazero/api"
-
-	"github.com/ncruces/go-sqlite3/internal/util"
 )
 
 // Txn is an in-progress database transaction.
@@ -21,11 +15,13 @@ type Txn struct {
 }
 
 // Begin starts a deferred transaction.
+// It panics if a transaction is in-progress.
+// For nested transactions, use [Conn.Savepoint].
 //
 // https://sqlite.org/lang_transaction.html
 func (c *Conn) Begin() Txn {
 	// BEGIN even if interrupted.
-	err := c.txnExecInterrupted(`BEGIN DEFERRED`)
+	err := c.exec(`BEGIN DEFERRED`)
 	if err != nil {
 		panic(err)
 	}
@@ -120,7 +116,8 @@ func (tx Txn) Commit() error {
 //
 // https://sqlite.org/lang_transaction.html
 func (tx Txn) Rollback() error {
-	return tx.c.txnExecInterrupted(`ROLLBACK`)
+	// ROLLBACK even if interrupted.
+	return tx.c.exec(`ROLLBACK`)
 }
 
 // Savepoint is a marker within a transaction
@@ -143,7 +140,7 @@ func (c *Conn) Savepoint() Savepoint {
 	// Names can be reused, but this makes catching bugs more likely.
 	name = QuoteIdentifier(name + "_" + strconv.Itoa(int(rand.Int31())))
 
-	err := c.txnExecInterrupted(`SAVEPOINT ` + name)
+	err := c.exec(`SAVEPOINT ` + name)
 	if err != nil {
 		panic(err)
 	}
@@ -199,7 +196,7 @@ func (s Savepoint) Release(errp *error) {
 		return
 	}
 	// ROLLBACK and RELEASE even if interrupted.
-	err := s.c.txnExecInterrupted(`ROLLBACK TO ` + s.name + `; RELEASE ` + s.name)
+	err := s.c.exec(`ROLLBACK TO ` + s.name + `; RELEASE ` + s.name)
 	if err != nil {
 		panic(err)
 	}
@@ -212,30 +209,19 @@ func (s Savepoint) Release(errp *error) {
 // https://sqlite.org/lang_transaction.html
 func (s Savepoint) Rollback() error {
 	// ROLLBACK even if interrupted.
-	return s.c.txnExecInterrupted(`ROLLBACK TO ` + s.name)
-}
-
-func (c *Conn) txnExecInterrupted(sql string) error {
-	err := c.Exec(sql)
-	if errors.Is(err, INTERRUPT) {
-		old := c.SetInterrupt(context.Background())
-		defer c.SetInterrupt(old)
-		err = c.Exec(sql)
-	}
-	return err
+	return s.c.exec(`ROLLBACK TO ` + s.name)
 }
 
 // TxnState determines the transaction state of a database.
 //
 // https://sqlite.org/c3ref/txn_state.html
 func (c *Conn) TxnState(schema string) TxnState {
-	var ptr uint32
+	var ptr ptr_t
 	if schema != "" {
-		defer c.arena.mark()()
-		ptr = c.arena.string(schema)
+		defer c.arena.Mark()()
+		ptr = c.arena.String(schema)
 	}
-	r := c.call("sqlite3_txn_state", uint64(c.handle), uint64(ptr))
-	return TxnState(r)
+	return TxnState(c.wrp.Xsqlite3_txn_state(int32(c.handle), int32(ptr)))
 }
 
 // CommitHook registers a callback function to be invoked
@@ -244,11 +230,11 @@ func (c *Conn) TxnState(schema string) TxnState {
 //
 // https://sqlite.org/c3ref/commit_hook.html
 func (c *Conn) CommitHook(cb func() (ok bool)) {
-	var enable uint64
+	var enable int32
 	if cb != nil {
 		enable = 1
 	}
-	c.call("sqlite3_commit_hook_go", uint64(c.handle), enable)
+	c.wrp.Xsqlite3_commit_hook_go(int32(c.handle), enable)
 	c.commit = cb
 }
 
@@ -257,11 +243,11 @@ func (c *Conn) CommitHook(cb func() (ok bool)) {
 //
 // https://sqlite.org/c3ref/commit_hook.html
 func (c *Conn) RollbackHook(cb func()) {
-	var enable uint64
+	var enable int32
 	if cb != nil {
 		enable = 1
 	}
-	c.call("sqlite3_rollback_hook_go", uint64(c.handle), enable)
+	c.wrp.Xsqlite3_rollback_hook_go(int32(c.handle), enable)
 	c.rollback = cb
 }
 
@@ -269,17 +255,30 @@ func (c *Conn) RollbackHook(cb func()) {
 // whenever a row is updated, inserted or deleted in a rowid table.
 //
 // https://sqlite.org/c3ref/update_hook.html
-func (c *Conn) UpdateHook(cb func(action AuthorizerActionCode, schema, table string, rowid int64)) {
-	var enable uint64
+func (c *Conn) UpdateHook(cb func(op AuthorizerActionCode, schema, table string, rowid int64)) {
+	var enable int32
 	if cb != nil {
 		enable = 1
 	}
-	c.call("sqlite3_update_hook_go", uint64(c.handle), enable)
+	c.wrp.Xsqlite3_update_hook_go(int32(c.handle), enable)
 	c.update = cb
 }
 
-func commitCallback(ctx context.Context, mod api.Module, pDB uint32) (rollback uint32) {
-	if c, ok := ctx.Value(connKey{}).(*Conn); ok && c.handle == pDB && c.commit != nil {
+// PreUpdateHook registers a callback function that is invoked prior
+// to each INSERT, UPDATE, and DELETE operation on a database table.
+//
+// https://sqlite.org/c3ref/preupdate_blobwrite.html
+func (c *Conn) PreUpdateHook(cb func(PreUpdateData)) {
+	var enable int32
+	if cb != nil {
+		enable = 1
+	}
+	c.wrp.Xsqlite3_preupdate_hook_go(int32(c.handle), enable)
+	c.preupdate = cb
+}
+
+func (e env) Xgo_commit_hook(pDB int32) (rollback int32) {
+	if c, ok := e.DB.(*Conn); ok && c.handle == ptr_t(pDB) && c.commit != nil {
 		if !c.commit() {
 			rollback = 1
 		}
@@ -287,17 +286,30 @@ func commitCallback(ctx context.Context, mod api.Module, pDB uint32) (rollback u
 	return rollback
 }
 
-func rollbackCallback(ctx context.Context, mod api.Module, pDB uint32) {
-	if c, ok := ctx.Value(connKey{}).(*Conn); ok && c.handle == pDB && c.rollback != nil {
+func (e env) Xgo_rollback_hook(pDB int32) {
+	if c, ok := e.DB.(*Conn); ok && c.handle == ptr_t(pDB) && c.rollback != nil {
 		c.rollback()
 	}
 }
 
-func updateCallback(ctx context.Context, mod api.Module, pDB uint32, action AuthorizerActionCode, zSchema, zTabName uint32, rowid uint64) {
-	if c, ok := ctx.Value(connKey{}).(*Conn); ok && c.handle == pDB && c.update != nil {
-		schema := util.ReadString(mod, zSchema, _MAX_NAME)
-		table := util.ReadString(mod, zTabName, _MAX_NAME)
-		c.update(action, schema, table, int64(rowid))
+func (e env) Xgo_update_hook(pDB, op, zSchema, zTabName int32, rowid int64) {
+	if c, ok := e.DB.(*Conn); ok && c.handle == ptr_t(pDB) && c.update != nil {
+		schema := e.ReadString(ptr_t(zSchema), _MAX_NAME)
+		table := e.ReadString(ptr_t(zTabName), _MAX_NAME)
+		c.update(AuthorizerActionCode(op), schema, table, rowid)
+	}
+}
+
+func (e env) Xgo_preupdate_hook(_, pDB, op, zSchema, zTabName int32, oldRowID, newRowID int64) {
+	if c, ok := e.DB.(*Conn); ok && c.handle == ptr_t(pDB) && c.preupdate != nil {
+		c.preupdate(PreUpdateData{
+			c:        c,
+			Op:       AuthorizerActionCode(op),
+			Schema:   e.ReadString(ptr_t(zSchema), _MAX_NAME),
+			Table:    e.ReadString(ptr_t(zTabName), _MAX_NAME),
+			OldRowID: oldRowID,
+			NewRowID: newRowID,
+		})
 	}
 }
 
@@ -305,6 +317,58 @@ func updateCallback(ctx context.Context, mod api.Module, pDB uint32, action Auth
 //
 // https://sqlite.org/c3ref/db_cacheflush.html
 func (c *Conn) CacheFlush() error {
-	r := c.call("sqlite3_db_cacheflush", uint64(c.handle))
-	return c.error(r)
+	rc := res_t(c.wrp.Xsqlite3_db_cacheflush(int32(c.handle)))
+	return c.error(rc)
+}
+
+// PreUpdateData provides information about a preupdate event.
+//
+// https://sqlite.org/c3ref/preupdate_blobwrite.html
+type PreUpdateData struct {
+	c        *Conn
+	Op       AuthorizerActionCode
+	Schema   string
+	Table    string
+	OldRowID int64
+	NewRowID int64
+}
+
+// Conn returns the database connection associated with the preupdate event.
+func (pud *PreUpdateData) Conn() *Conn {
+	return pud.c
+}
+
+// Count returns the number of columns in the row that is being inserted, updated, or deleted.
+//
+// https://sqlite.org/c3ref/preupdate_blobwrite.html
+func (pud *PreUpdateData) Count() int {
+	return int(pud.c.wrp.Xsqlite3_preupdate_count(int32(pud.c.handle)))
+}
+
+// Depth returns the trigger depth of the insert, update, or delete operation.
+//
+// https://sqlite.org/c3ref/preupdate_blobwrite.html
+func (pud *PreUpdateData) Depth() int {
+	return int(pud.c.wrp.Xsqlite3_preupdate_depth(int32(pud.c.handle)))
+}
+
+// BlobWrite returns the index of the column being written to using [Blob].
+//
+// https://sqlite.org/c3ref/preupdate_blobwrite.html
+func (pud *PreUpdateData) BlobWrite() int {
+	return int(pud.c.wrp.Xsqlite3_preupdate_blobwrite(int32(pud.c.handle)))
+}
+
+// Old returns the value of a column of the table row before it is updated.
+//
+// https://sqlite.org/c3ref/preupdate_blobwrite.html
+func (pud *PreUpdateData) Old(column int) (Value, error) {
+	return pud.c.columnValue(pud.c.wrp.Xsqlite3_preupdate_old, pud.c.handle, column)
+}
+
+// New returns the value of a column of the table row after it is updated.
+//
+// https://sqlite.org/c3ref/preupdate_blobwrite.html
+func (pud *PreUpdateData) New(column int) (Value, error) {
+	return pud.c.columnValue(pud.c.wrp.Xsqlite3_preupdate_new, pud.c.handle, column)
 }

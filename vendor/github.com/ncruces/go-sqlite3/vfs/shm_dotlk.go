@@ -3,15 +3,12 @@
 package vfs
 
 import (
-	"context"
 	"errors"
 	"io/fs"
 	"sync"
 
-	"github.com/tetratelabs/wazero/api"
-
 	"github.com/ncruces/go-sqlite3/internal/dotlk"
-	"github.com/ncruces/go-sqlite3/internal/util"
+	"github.com/ncruces/go-sqlite3/internal/sqlite3_wrap"
 )
 
 type vfsShmParent struct {
@@ -30,13 +27,10 @@ var (
 
 type vfsShm struct {
 	*vfsShmParent
-	mod    api.Module
-	alloc  api.Function
-	free   api.Function
+	wrp    *sqlite3_wrap.Wrapper
 	path   string
 	shadow [][_WALINDEX_PGSZ]byte
-	ptrs   []uint32
-	stack  [1]uint64
+	ptrs   []ptr_t
 	lock   [_SHM_NLOCK]bool
 }
 
@@ -59,16 +53,16 @@ func (s *vfsShm) Close() error {
 	}
 
 	if err := dotlk.Unlock(s.path); err != nil {
-		return _IOERR_UNLOCK
+		return sysError{err, _IOERR_UNLOCK}
 	}
 	delete(vfsShmList, s.path)
 	s.vfsShmParent = nil
 	return nil
 }
 
-func (s *vfsShm) shmOpen() _ErrorCode {
+func (s *vfsShm) shmOpen() error {
 	if s.vfsShmParent != nil {
-		return _OK
+		return nil
 	}
 
 	vfsShmListMtx.Lock()
@@ -78,7 +72,7 @@ func (s *vfsShm) shmOpen() _ErrorCode {
 	if g, ok := vfsShmList[s.path]; ok {
 		s.vfsShmParent = g
 		g.refs++
-		return _OK
+		return nil
 	}
 
 	// Dead man's switch.
@@ -87,26 +81,24 @@ func (s *vfsShm) shmOpen() _ErrorCode {
 		return _BUSY
 	}
 	if err != nil {
-		return _IOERR_LOCK
+		return sysError{err, _IOERR_LOCK}
 	}
 
 	// Add the new shared buffer.
 	s.vfsShmParent = &vfsShmParent{}
 	vfsShmList[s.path] = s.vfsShmParent
-	return _OK
+	return nil
 }
 
-func (s *vfsShm) shmMap(ctx context.Context, mod api.Module, id, size int32, extend bool) (uint32, _ErrorCode) {
+func (s *vfsShm) shmMap(wrp *sqlite3_wrap.Wrapper, id, size int32, extend bool) (ptr_t, error) {
 	if size != _WALINDEX_PGSZ {
 		return 0, _IOERR_SHMMAP
 	}
-	if s.mod == nil {
-		s.mod = mod
-		s.free = mod.ExportedFunction("sqlite3_free")
-		s.alloc = mod.ExportedFunction("sqlite3_malloc64")
+	if s.wrp == nil {
+		s.wrp = wrp
 	}
-	if rc := s.shmOpen(); rc != _OK {
-		return 0, rc
+	if err := s.shmOpen(); err != nil {
+		return 0, err
 	}
 
 	s.Lock()
@@ -116,7 +108,7 @@ func (s *vfsShm) shmMap(ctx context.Context, mod api.Module, id, size int32, ext
 	// Extend shared memory.
 	if int(id) >= len(s.shared) {
 		if !extend {
-			return 0, _OK
+			return 0, nil
 		}
 		s.shared = append(s.shared, make([][_WALINDEX_PGSZ]byte, int(id)-len(s.shared)+1)...)
 	}
@@ -128,28 +120,29 @@ func (s *vfsShm) shmMap(ctx context.Context, mod api.Module, id, size int32, ext
 
 	// Allocate local memory.
 	for int(id) >= len(s.ptrs) {
-		s.stack[0] = uint64(size)
-		if err := s.alloc.CallWithStack(ctx, s.stack[:]); err != nil {
-			panic(err)
+		ptr := wrp.Xsqlite3_malloc64(int64(size))
+		if ptr == 0 {
+			return 0, _IOERR_NOMEM
 		}
-		if s.stack[0] == 0 {
-			panic(util.OOMErr)
-		}
-		clear(util.View(s.mod, uint32(s.stack[0]), _WALINDEX_PGSZ))
-		s.ptrs = append(s.ptrs, uint32(s.stack[0]))
+		clear(wrp.Bytes(ptr_t(ptr), _WALINDEX_PGSZ))
+		s.ptrs = append(s.ptrs, ptr_t(ptr))
 	}
 
 	s.shadow[0][4] = 1
-	return s.ptrs[id], _OK
+	return s.ptrs[id], nil
 }
 
-func (s *vfsShm) shmLock(offset, n int32, flags _ShmFlag) (rc _ErrorCode) {
+func (s *vfsShm) shmLock(offset, n int32, flags _ShmFlag) (err error) {
+	if s.vfsShmParent == nil {
+		return _IOERR_SHMLOCK
+	}
+
 	s.Lock()
 	defer s.Unlock()
 
 	switch {
 	case flags&_SHM_LOCK != 0:
-		defer s.shmAcquire(&rc)
+		defer s.shmAcquire(&err)
 	case flags&_SHM_EXCLUSIVE != 0:
 		s.shmRelease()
 	}
@@ -168,10 +161,7 @@ func (s *vfsShm) shmUnmap(delete bool) {
 	defer s.Unlock()
 
 	for _, p := range s.ptrs {
-		s.stack[0] = uint64(p)
-		if err := s.free.CallWithStack(context.Background(), s.stack[:]); err != nil {
-			panic(err)
-		}
+		s.wrp.Xsqlite3_free(int32(p))
 	}
 	s.ptrs = nil
 	s.shadow = nil

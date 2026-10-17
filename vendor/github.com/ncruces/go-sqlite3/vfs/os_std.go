@@ -7,7 +7,10 @@ import (
 	"os"
 )
 
-const _O_NOFOLLOW = 0
+const (
+	isUnix      = false
+	_O_NOFOLLOW = 0
+)
 
 func osAccess(path string, flags AccessFlag) error {
 	fi, err := os.Stat(path)

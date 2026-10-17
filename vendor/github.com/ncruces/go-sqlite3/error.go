@@ -2,20 +2,19 @@ package sqlite3
 
 import (
 	"errors"
-	"strconv"
 	"strings"
 
-	"github.com/ncruces/go-sqlite3/internal/util"
+	"github.com/ncruces/go-sqlite3/internal/sqlite3_wrap"
 )
 
 // Error wraps an SQLite Error Code.
 //
 // https://sqlite.org/c3ref/errcode.html
 type Error struct {
-	str  string
+	sys  error
 	msg  string
 	sql  string
-	code uint64
+	code res_t
 }
 
 // Code returns the primary error code for this error.
@@ -29,26 +28,32 @@ func (e *Error) Code() ErrorCode {
 //
 // https://sqlite.org/rescode.html
 func (e *Error) ExtendedCode() ExtendedErrorCode {
-	return ExtendedErrorCode(e.code)
+	return xErrorCode(e.code)
 }
 
 // Error implements the error interface.
 func (e *Error) Error() string {
 	var b strings.Builder
-	b.WriteString("sqlite3: ")
-
-	if e.str != "" {
-		b.WriteString(e.str)
-	} else {
-		b.WriteString(strconv.Itoa(int(e.code)))
-	}
+	b.WriteString(sqlite3_wrap.ErrorCodeString(e.code))
 
 	if e.msg != "" {
 		b.WriteString(": ")
 		b.WriteString(e.msg)
 	}
+	if e.sys != nil {
+		b.WriteString(": ")
+		b.WriteString(e.sys.Error())
+	}
 
 	return b.String()
+}
+
+// Unwrap returns the underlying operating system error
+// that caused the I/O error or failure to open a file.
+//
+// https://sqlite.org/c3ref/system_errno.html
+func (e *Error) Unwrap() error {
+	return e.sys
 }
 
 // Is tests whether this error matches a given [ErrorCode] or [ExtendedErrorCode].
@@ -83,7 +88,7 @@ func (e *Error) As(err any) bool {
 
 // Temporary returns true for [BUSY] errors.
 func (e *Error) Temporary() bool {
-	return e.Code() == BUSY
+	return e.Code() == BUSY || e.Code() == INTERRUPT
 }
 
 // Timeout returns true for [BUSY_TIMEOUT] errors.
@@ -98,22 +103,31 @@ func (e *Error) SQL() string {
 
 // Error implements the error interface.
 func (e ErrorCode) Error() string {
-	return util.ErrorCodeString(uint32(e))
+	return sqlite3_wrap.ErrorCodeString(e)
+}
+
+// As converts this error to an [ExtendedErrorCode].
+func (e ErrorCode) As(err any) bool {
+	c, ok := err.(*xErrorCode)
+	if ok {
+		*c = xErrorCode(e)
+	}
+	return ok
 }
 
 // Temporary returns true for [BUSY] errors.
 func (e ErrorCode) Temporary() bool {
-	return e == BUSY
+	return e == BUSY || e == INTERRUPT
 }
 
 // ExtendedCode returns the extended error code for this error.
 func (e ErrorCode) ExtendedCode() ExtendedErrorCode {
-	return ExtendedErrorCode(e)
+	return xErrorCode(e)
 }
 
 // Error implements the error interface.
 func (e ExtendedErrorCode) Error() string {
-	return util.ErrorCodeString(uint32(e))
+	return sqlite3_wrap.ErrorCodeString(e)
 }
 
 // Is tests whether this error matches a given [ErrorCode].
@@ -133,7 +147,7 @@ func (e ExtendedErrorCode) As(err any) bool {
 
 // Temporary returns true for [BUSY] errors.
 func (e ExtendedErrorCode) Temporary() bool {
-	return ErrorCode(e) == BUSY
+	return ErrorCode(e) == BUSY || ErrorCode(e) == INTERRUPT
 }
 
 // Timeout returns true for [BUSY_TIMEOUT] errors.
@@ -146,27 +160,23 @@ func (e ExtendedErrorCode) Code() ErrorCode {
 	return ErrorCode(e)
 }
 
-func errorCode(err error, def ErrorCode) (msg string, code uint32) {
+func errorCode(err error, def ErrorCode) (msg string, code res_t) {
 	switch code := err.(type) {
 	case nil:
 		return "", _OK
 	case ErrorCode:
-		return "", uint32(code)
+		return "", res_t(code)
 	case xErrorCode:
-		return "", uint32(code)
+		return "", res_t(code)
 	case *Error:
-		return code.msg, uint32(code.code)
+		return code.msg, res_t(code.code)
 	}
 
-	var ecode ErrorCode
 	var xcode xErrorCode
-	switch {
-	case errors.As(err, &xcode):
-		code = uint32(xcode)
-	case errors.As(err, &ecode):
-		code = uint32(ecode)
-	default:
-		code = uint32(def)
+	if errors.As(err, &xcode) {
+		code = res_t(xcode)
+	} else {
+		code = res_t(def)
 	}
 	return err.Error(), code
 }

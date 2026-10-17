@@ -1,19 +1,27 @@
 package sqlite3
 
-import "strconv"
+import (
+	"strconv"
+
+	"github.com/ncruces/go-sqlite3/internal/sqlite3_wrap"
+)
 
 const (
 	_OK   = 0   /* Successful result */
 	_ROW  = 100 /* sqlite3_step() has another row ready */
 	_DONE = 101 /* sqlite3_step() has finished executing */
 
-	_MAX_NAME         = 1e6 // Self-imposed limit for most NUL terminated strings.
-	_MAX_LENGTH       = 1e9
-	_MAX_SQL_LENGTH   = 1e9
-	_MAX_FUNCTION_ARG = 100
+	_MAX_NAME       = 1e6 // Self-imposed limit for most NUL terminated strings.
+	_MAX_LENGTH     = 1e9
+	_MAX_SQL_LENGTH = 1e9
 
-	ptrlen = 4
-	intlen = 4
+	ptrlen = sqlite3_wrap.PtrLen
+	intlen = sqlite3_wrap.IntLen
+)
+
+type (
+	ptr_t = sqlite3_wrap.Ptr_t
+	res_t = sqlite3_wrap.Res_t
 )
 
 // ErrorCode is a result code that [Error.Code] might return.
@@ -64,6 +72,9 @@ const (
 	ERROR_MISSING_COLLSEQ   ExtendedErrorCode = xErrorCode(ERROR) | (1 << 8)
 	ERROR_RETRY             ExtendedErrorCode = xErrorCode(ERROR) | (2 << 8)
 	ERROR_SNAPSHOT          ExtendedErrorCode = xErrorCode(ERROR) | (3 << 8)
+	ERROR_RESERVESIZE       ExtendedErrorCode = xErrorCode(ERROR) | (4 << 8)
+	ERROR_KEY               ExtendedErrorCode = xErrorCode(ERROR) | (5 << 8)
+	ERROR_UNABLE            ExtendedErrorCode = xErrorCode(ERROR) | (6 << 8)
 	IOERR_READ              ExtendedErrorCode = xErrorCode(IOERR) | (1 << 8)
 	IOERR_SHORT_READ        ExtendedErrorCode = xErrorCode(IOERR) | (2 << 8)
 	IOERR_WRITE             ExtendedErrorCode = xErrorCode(IOERR) | (3 << 8)
@@ -98,6 +109,8 @@ const (
 	IOERR_DATA              ExtendedErrorCode = xErrorCode(IOERR) | (32 << 8)
 	IOERR_CORRUPTFS         ExtendedErrorCode = xErrorCode(IOERR) | (33 << 8)
 	IOERR_IN_PAGE           ExtendedErrorCode = xErrorCode(IOERR) | (34 << 8)
+	IOERR_BADKEY            ExtendedErrorCode = xErrorCode(IOERR) | (35 << 8)
+	IOERR_CODEC             ExtendedErrorCode = xErrorCode(IOERR) | (36 << 8)
 	LOCKED_SHAREDCACHE      ExtendedErrorCode = xErrorCode(LOCKED) | (1 << 8)
 	LOCKED_VTAB             ExtendedErrorCode = xErrorCode(LOCKED) | (2 << 8)
 	BUSY_RECOVERY           ExtendedErrorCode = xErrorCode(BUSY) | (1 << 8)
@@ -159,13 +172,15 @@ const (
 
 // PrepareFlag is a flag that can be passed to [Conn.PrepareFlags].
 //
-// https://sqlite.org/c3ref/c_prepare_normalize.html
+// https://sqlite.org/c3ref/c_prepare_dont_log.html
 type PrepareFlag uint32
 
 const (
 	PREPARE_PERSISTENT PrepareFlag = 0x01
 	PREPARE_NORMALIZE  PrepareFlag = 0x02
 	PREPARE_NO_VTAB    PrepareFlag = 0x04
+	PREPARE_DONT_LOG   PrepareFlag = 0x10
+	PREPARE_FROM_DDL   PrepareFlag = 0x20
 )
 
 // FunctionFlag is a flag that can be passed to
@@ -175,12 +190,12 @@ const (
 type FunctionFlag uint32
 
 const (
-	DETERMINISTIC FunctionFlag = 0x000000800
-	DIRECTONLY    FunctionFlag = 0x000080000
-	INNOCUOUS     FunctionFlag = 0x000200000
-	SELFORDER1    FunctionFlag = 0x002000000
-	// SUBTYPE        FunctionFlag = 0x000100000
-	// RESULT_SUBTYPE FunctionFlag = 0x001000000
+	DETERMINISTIC  FunctionFlag = 0x000000800
+	DIRECTONLY     FunctionFlag = 0x000080000
+	SUBTYPE        FunctionFlag = 0x000100000
+	INNOCUOUS      FunctionFlag = 0x000200000
+	RESULT_SUBTYPE FunctionFlag = 0x001000000
+	SELFORDER1     FunctionFlag = 0x002000000
 )
 
 // StmtStatus name counter values associated with the [Stmt.Status] method.
@@ -219,6 +234,8 @@ const (
 	DBSTATUS_DEFERRED_FKS        DBStatus = 10
 	DBSTATUS_CACHE_USED_SHARED   DBStatus = 11
 	DBSTATUS_CACHE_SPILL         DBStatus = 12
+	DBSTATUS_TEMPBUF_SPILL       DBStatus = 13
+	// DBSTATUS_MAX              DBStatus = 13
 )
 
 // DBConfig are the available database connection configuration options.
@@ -247,7 +264,11 @@ const (
 	DBCONFIG_TRUSTED_SCHEMA        DBConfig = 1017
 	DBCONFIG_STMT_SCANSTATUS       DBConfig = 1018
 	DBCONFIG_REVERSE_SCANORDER     DBConfig = 1019
-	// DBCONFIG_MAX                DBConfig = 1019
+	DBCONFIG_ENABLE_ATTACH_CREATE  DBConfig = 1020
+	DBCONFIG_ENABLE_ATTACH_WRITE   DBConfig = 1021
+	DBCONFIG_ENABLE_COMMENTS       DBConfig = 1022
+	DBCONFIG_FP_DIGITS             DBConfig = 1023
+	// DBCONFIG_MAX                DBConfig = 1023
 )
 
 // FcntlOpcode are the available opcodes for [Conn.FileControl].
@@ -260,12 +281,14 @@ const (
 	FCNTL_CHUNK_SIZE          FcntlOpcode = 6
 	FCNTL_FILE_POINTER        FcntlOpcode = 7
 	FCNTL_PERSIST_WAL         FcntlOpcode = 10
+	FCNTL_VFSNAME             FcntlOpcode = 12
 	FCNTL_POWERSAFE_OVERWRITE FcntlOpcode = 13
 	FCNTL_VFS_POINTER         FcntlOpcode = 27
 	FCNTL_JOURNAL_POINTER     FcntlOpcode = 28
 	FCNTL_DATA_VERSION        FcntlOpcode = 35
 	FCNTL_RESERVE_BYTES       FcntlOpcode = 38
 	FCNTL_RESET_CACHE         FcntlOpcode = 42
+	FCNTL_NULL_IO             FcntlOpcode = 43
 )
 
 // LimitCategory are the available run-time limit categories.
@@ -286,6 +309,7 @@ const (
 	LIMIT_VARIABLE_NUMBER     LimitCategory = 9
 	LIMIT_TRIGGER_DEPTH       LimitCategory = 10
 	LIMIT_WORKER_THREADS      LimitCategory = 11
+	LIMIT_PARSER_DEPTH        LimitCategory = 12
 )
 
 // AuthorizerActionCode are the integer action codes
@@ -347,13 +371,14 @@ const (
 // CheckpointMode are all the checkpoint mode values.
 //
 // https://sqlite.org/c3ref/c_checkpoint_full.html
-type CheckpointMode uint32
+type CheckpointMode int32
 
 const (
-	CHECKPOINT_PASSIVE  CheckpointMode = 0 /* Do as much as possible w/o blocking */
-	CHECKPOINT_FULL     CheckpointMode = 1 /* Wait for writers, then checkpoint */
-	CHECKPOINT_RESTART  CheckpointMode = 2 /* Like FULL but wait for readers */
-	CHECKPOINT_TRUNCATE CheckpointMode = 3 /* Like RESTART but also truncate WAL */
+	CHECKPOINT_NOOP     CheckpointMode = -1 /* Do no work at all */
+	CHECKPOINT_PASSIVE  CheckpointMode = 0  /* Do as much as possible w/o blocking */
+	CHECKPOINT_FULL     CheckpointMode = 1  /* Wait for writers, then checkpoint */
+	CHECKPOINT_RESTART  CheckpointMode = 2  /* Like FULL but wait for readers */
+	CHECKPOINT_TRUNCATE CheckpointMode = 3  /* Like RESTART but also truncate WAL */
 )
 
 // TxnState are the allowed return values from [Conn.TxnState].
