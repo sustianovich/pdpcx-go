@@ -70,6 +70,7 @@ type Servidor struct {
 
 type Pagina struct {
 	Titulo, Msg, Err string
+	NavActiva        string
 	S                *Sesion
 	D                any
 }
@@ -118,7 +119,24 @@ func (sv *Servidor) pg(s *Sesion) Programa {
 	return Programa{BD: sv.b, Usuario: s.Usuario.Login, Canal: "WEB"}
 }
 
+// Solo las plantillas de sección seleccionan un enlace de la cabecera.
+var navegacionPorPlantilla = map[string]string{
+	"inicio":        "/",
+	"buscar":        "/buscar",
+	"ficha":         "/buscar",
+	"pendientes":    "/pendientes",
+	"kpis":          "/kpis",
+	"lotes":         "/lotes",
+	"planificacion": "/planificacion",
+	"importar":      "/importar",
+	"zonas":         "/zonas",
+	"parametros":    "/parametros",
+	"usuarios":      "/usuarios",
+	"auditoria":     "/auditoria",
+}
+
 func (sv *Servidor) render(w http.ResponseWriter, nombre string, p Pagina) {
+	p.NavActiva = navegacionPorPlantilla[nombre]
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	if err := sv.tmpl.ExecuteTemplate(w, nombre, p); err != nil {
 		log.Printf("plantilla %s: %v", nombre, err)
@@ -481,16 +499,16 @@ func (sv *Servidor) accionExclusion(w http.ResponseWriter, r *http.Request, s *S
 		if err != nil {
 			return "", err
 		}
+		t, m := r.PostFormValue("tipo"), r.PostFormValue("motivo")
 		var fin time.Time
-		if v := r.PostFormValue("fin"); v != "" {
-			if fin, err = parseFecha(v); err != nil {
-				return "", err
-			}
-			if fin.Before(ini) {
-				return "", fmt.Errorf("el fin es anterior al inicio")
+		// Fin solo aplica a TEMPORAL; una definitiva ignora incluso un valor malformado.
+		if t == "TEMPORAL" {
+			if v := r.PostFormValue("fin"); v != "" {
+				if fin, err = parseFecha(v); err != nil {
+					return "", err
+				}
 			}
 		}
-		t, m := r.PostFormValue("tipo"), r.PostFormValue("motivo")
 		return t + " " + m, pg.crearExclusion(tx, idRuta(r), t, m, ini, fin, "WEB")
 	})
 }

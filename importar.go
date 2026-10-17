@@ -231,8 +231,15 @@ func (pg Programa) crearExclusion(tx *Tx, mid int64, tipo, motivo string, ini, f
 	if tipo != "DEFINITIVA" && tipo != "TEMPORAL" {
 		return fmt.Errorf("tipo de exclusión no válido %q", tipo)
 	}
-	if tipo == "TEMPORAL" && fin.IsZero() {
-		return fmt.Errorf("una exclusión TEMPORAL necesita fecha_fin")
+	if tipo == "DEFINITIVA" {
+		fin = time.Time{} // Sin fecha de fin, cualquiera que sea el canal de entrada.
+	} else {
+		if fin.IsZero() {
+			return fmt.Errorf("una exclusión TEMPORAL necesita fecha_fin")
+		}
+		if fin.Before(ini) {
+			return fmt.Errorf("el fin es anterior al inicio")
+		}
 	}
 	if _, err := tx.Exec(`INSERT INTO exclusiones(mujer_id,tipo,motivo,fecha_inicio,fecha_fin,origen) VALUES(?,?,?,?,?,?)`,
 		mid, tipo, motivo, fs(ini), nullFecha(fin), origen); err != nil {

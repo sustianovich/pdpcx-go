@@ -5,17 +5,17 @@
 <header>
   <span class="marca">PDPCX · Programa de deteccion precoz cérvix</span>
   {{if .S}}<nav>
-    <a href="/">Inicio</a>
-    {{if tiene .S "ficha"}}<a href="/buscar">Buscar mujer</a>{{end}}
-    {{if tiene .S "pendientes"}}<a href="/pendientes">Pendientes</a>{{end}}
-    {{if tiene .S "kpis"}}<a href="/kpis">KPIs</a>{{end}}
-    {{if tiene .S "lotes"}}<a href="/lotes">Invitaciones</a>{{end}}
-    {{if tiene .S "lotes"}}<a href="/planificacion">Planificación mensual</a>{{end}}
-    {{if tiene .S "importar"}}<a href="/importar">Importar</a>{{end}}
-    {{if tiene .S "zonas"}}<a href="/zonas">Zonas</a>{{end}}
-    {{if tiene .S "parametros"}}<a href="/parametros">Reglas</a>{{end}}
-    {{if tiene .S "usuarios"}}<a href="/usuarios">Usuarios</a>{{end}}
-    {{if tiene .S "auditoria"}}<a href="/auditoria">Auditoría</a>{{end}}
+    <a href="/"{{if eq .NavActiva "/"}} aria-current="page"{{end}}>Inicio</a>
+    {{if tiene .S "ficha"}}<a href="/buscar"{{if eq .NavActiva "/buscar"}} aria-current="page"{{end}}>Buscar mujer</a>{{end}}
+    {{if tiene .S "pendientes"}}<a href="/pendientes"{{if eq .NavActiva "/pendientes"}} aria-current="page"{{end}}>Pendientes</a>{{end}}
+    {{if tiene .S "kpis"}}<a href="/kpis"{{if eq .NavActiva "/kpis"}} aria-current="page"{{end}}>KPIs</a>{{end}}
+    {{if tiene .S "lotes"}}<a href="/lotes"{{if eq .NavActiva "/lotes"}} aria-current="page"{{end}}>Invitaciones</a>{{end}}
+    {{if tiene .S "lotes"}}<a href="/planificacion"{{if eq .NavActiva "/planificacion"}} aria-current="page"{{end}}>Planificación mensual</a>{{end}}
+    {{if tiene .S "importar"}}<a href="/importar"{{if eq .NavActiva "/importar"}} aria-current="page"{{end}}>Importar</a>{{end}}
+    {{if tiene .S "zonas"}}<a href="/zonas"{{if eq .NavActiva "/zonas"}} aria-current="page"{{end}}>Zonas</a>{{end}}
+    {{if tiene .S "parametros"}}<a href="/parametros"{{if eq .NavActiva "/parametros"}} aria-current="page"{{end}}>Reglas</a>{{end}}
+    {{if tiene .S "usuarios"}}<a href="/usuarios"{{if eq .NavActiva "/usuarios"}} aria-current="page"{{end}}>Usuarios</a>{{end}}
+    {{if tiene .S "auditoria"}}<a href="/auditoria"{{if eq .NavActiva "/auditoria"}} aria-current="page"{{end}}>Auditoría</a>{{end}}
   </nav>
   <div class="quien">{{.S.Usuario.Nombre}} · {{.S.Usuario.Rol}}
     <a href="/clave" style="color:#fff">Contraseña</a>
@@ -137,12 +137,12 @@
 
 {{if tiene $s "exclusion"}}
 <details><summary>Registrar exclusión</summary>
-<form class="linea" method="post" action="/mujer/{{$f.ID}}/exclusion">
+<form class="linea formulario-exclusion" method="post" action="/mujer/{{$f.ID}}/exclusion">
   <input type="hidden" name="csrf" value="{{$s.CSRF}}">
-  <label>Tipo <select name="tipo"><option>TEMPORAL</option><option>DEFINITIVA</option></select></label>
+  <label>Tipo <select name="tipo"><option value="TEMPORAL">TEMPORAL</option><option value="DEFINITIVA">DEFINITIVA</option></select></label>
   <label>Motivo <select name="motivo">{{range $.D.MotivosExcl}}<option>{{.}}</option>{{end}}</select></label>
   <label>Inicio <input type="date" name="inicio" required value="{{$.D.Hoy}}"></label>
-  <label>Fin (temporal) <input type="date" name="fin"></label><button>Guardar</button>
+  <label class="fin-temporal">Fin (temporal) <input type="date" name="fin"></label><button>Guardar</button>
 </form></details>{{end}}
 {{if and (tiene $s "reincorporar") (or (eq $f.Estado "SEGUIMIENTO_CLINICO") (eq $f.Estado "EXCLUIDA"))}}
 <details><summary>Reincorporar al cribado</summary>
@@ -178,7 +178,8 @@
 {{range $f.Historial}}<tr><td>{{.Fecha}}</td><td>{{.Campo}}</td><td>{{.Anterior}}</td><td>{{.Nuevo}}</td><td>{{.Origen}}</td><td>{{.Usuario}}</td></tr>{{end}}</table>{{end}}
 
 <h2>Traza completa</h2>
-<div class="tabla-scroll"><table><tr><th>Fecha</th><th>Inv.</th><th>Evento</th><th>Detalle</th><th>Origen</th><th>Usuario</th><th>Registrado</th></tr>
+<p class="pequeno">Traza ordenada por fecha efectiva del evento, no por el momento de registro. «Registrado» indica cuándo se incorporó al sistema; una exclusión aparece en su fecha de inicio.</p>
+<div class="tabla-scroll"><table><tr><th>Fecha efectiva</th><th>Inv.</th><th>Evento</th><th>Detalle</th><th>Origen</th><th>Usuario</th><th>Registrado</th></tr>
 {{range $f.Eventos}}<tr><td>{{.Fecha}}</td><td>{{if .Inv}}{{.Inv}}{{end}}</td><td>{{.Tipo}}</td><td>{{.Detalle}}</td><td>{{.Origen}}</td><td>{{.Usuario}}</td><td class="pequeno">{{.Registrado}}</td></tr>{{end}}
 </table></div>
 {{template "pie" .}}{{end}}
@@ -186,7 +187,7 @@
 {{define "pendientes"}}{{template "cabecera" .}}
 <h1>Pendientes {{if .D.Servicio}}· {{.D.Servicio}}{{else}}· todos los servicios{{end}}</h1>
 {{if .D.PuedeElegir}}<form class="linea tarjeta" method="get" action="/pendientes">
-  <label>Servicio <select name="servicio"><option value="">Todos</option>{{range .D.Servicios}}<option {{if eq . $.D.Servicio}}selected{{end}}>{{.}}</option>{{end}}</select></label>
+  <label>Servicio <select name="servicio"><option value="">Todos</option>{{range .D.Servicios}}{{if ne . "COORDINACION"}}<option {{if eq . $.D.Servicio}}selected{{end}}>{{.}}</option>{{end}}{{end}}</select></label>
   <button>Ver</button></form>{{end}}
 <p>{{len .D.Tareas}} tareas · <span class="{{if .D.Vencidas}}mal{{else}}ok{{end}}">{{.D.Vencidas}} fuera de plazo</span></p>
 <div class="tabla-scroll"><table><tr><th>Servicio</th><th>Tarea</th><th>Mujer</th><th>Desde</th><th class="num">Días</th><th class="num">Plazo</th><th>Detalle</th></tr>
